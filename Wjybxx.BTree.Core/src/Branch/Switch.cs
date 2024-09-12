@@ -40,27 +40,31 @@ public class Switch<T> : SingleRunningChildBranch<T> where T : class
     public Switch(List<Task<T>>? children) : base(children) {
     }
 
-    protected override void Execute() {
+    protected override int Enter() {
         if (runningChild == null) {
             int index = SelectChild();
             if (index < 0) {
                 runningIndex = -1;
                 runningChild = null;
-                SetFailed(TaskStatus.ERROR);
-                return;
+                return TaskStatus.ERROR;
             }
             runningIndex = index;
             runningChild = children[index];
         }
+        return TaskStatus.RUNNING;
+    }
 
+    protected override int Execute() {
+        Task<T> runningChild = this.runningChild; // 完成时会被清理
         Task<T> inlinedChild = inlineHelper.GetInlinedChild();
         if (inlinedChild != null) {
             inlinedChild.Template_ExecuteInlined(ref inlineHelper, runningChild);
         } else if (runningChild.IsRunning) {
             runningChild.Template_Execute(true);
         } else {
-            Template_StartChild(runningChild, false);
+            Template_StartChild(runningChild, false, ref inlineHelper);
         }
+        return runningChild.Status;
     }
 
     private int SelectChild() {
@@ -69,21 +73,16 @@ public class Switch<T> : SingleRunningChildBranch<T> where T : class
         }
         for (int idx = 0; idx < children.Count; idx++) {
             Task<T> child = children[idx];
-            if (Template_CheckGuard(child.Guard)) {
-                return idx;
+            if (!Template_CheckGuard(child.Guard)) {
+                continue;
             }
+            return idx;
         }
         return -1;
     }
 
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        runningChild = null;
-        inlineHelper.StopInline();
-        SetCompleted(child.Status, true);
+    protected override int OnChildCompleted(Task<T> child) {
+        throw new System.NotImplementedException();
     }
 
     public ISwitchHandler<T>? Handler {

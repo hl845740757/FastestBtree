@@ -21,7 +21,6 @@ namespace Wjybxx.BTree.Decorator
 /// <summary>
 /// 循环子节点直到给定的条件达成
 /// </summary>
-/// <typeparam name="T"></typeparam>
 [TaskInlinable]
 public class UntilCond<T> : LoopDecorator<T> where T : class
 {
@@ -35,22 +34,16 @@ public class UntilCond<T> : LoopDecorator<T> where T : class
         }
     }
 
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        inlineHelper.StopInline();
+    protected override int OnChildCompleted(Task<T> child) {
         if (child.IsCancelled) {
-            SetCancelled();
-            return;
+            return TaskStatus.CANCELLED;
         }
         if (Template_CheckGuard(cond)) {
-            SetSuccess();
+            return TaskStatus.SUCCESS;
         } else if (!HasNextLoop()) {
-            SetFailed(TaskStatus.MAX_LOOP_LIMIT);
+            return (TaskStatus.MAX_LOOP_LIMIT);
         } else {
-            Template_Execute(false);
+            return TaskStatus.RUNNING;
         }
     }
 

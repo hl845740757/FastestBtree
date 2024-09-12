@@ -49,16 +49,16 @@ public class DecoratorTest
             this.isGuard = isGuard;
         }
 
-        protected override void Execute() {
+        protected override int Execute() {
             if (!isGuard && random.Next(2) == 1) { // 随机等待
-                return;
+                return TaskStatus.RUNNING;
             }
             if (random.Next(2) == 1) {
                 successCount++;
-                SetSuccess();
+                return TaskStatus.SUCCESS;
             } else {
                 failedCount++;
-                SetFailed(TaskStatus.ERROR);
+                return TaskStatus.ERROR;
             }
         }
 

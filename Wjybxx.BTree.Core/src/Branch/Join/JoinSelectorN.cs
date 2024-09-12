@@ -48,22 +48,27 @@ public class JoinSelectorN<T> : JoinPolicy<T> where T : class
         sequence = Math.Clamp(sequence, 0, required);
     }
 
-    public void Enter(Join<T> join) {
+    public int Enter(Join<T> join) {
         if (required <= 0) {
-            join.SetSuccess();
-        } else if (join.ChildCount == 0) {
-            join.SetFailed(TaskStatus.CHILDLESS);
-        } else if (CheckFailFast(join)) {
-            join.SetFailed(TaskStatus.INSUFFICIENT_CHILD);
+            return TaskStatus.SUCCESS;
         }
+        if (join.ChildCount == 0) {
+            return TaskStatus.CHILDLESS;
+        }
+        if (CheckFailFast(join)) {
+            return TaskStatus.INSUFFICIENT_CHILD;
+        }
+        return TaskStatus.RUNNING;
     }
 
-    public void OnChildCompleted(Join<T> join, Task<T> child) {
+    public int OnChildCompleted(Join<T> join, Task<T> child) {
         if (join.SucceededCount >= required && CheckSequence(join)) {
-            join.SetSuccess();
-        } else if (join.IsAllChildCompleted || CheckFailFast(join)) {
-            join.SetFailed(TaskStatus.ERROR);
+            return TaskStatus.SUCCESS;
         }
+        if (join.IsAllChildCompleted || CheckFailFast(join)) {
+            return TaskStatus.ERROR;
+        }
+        return TaskStatus.RUNNING;
     }
 
     private bool CheckSequence(Join<T> join) {

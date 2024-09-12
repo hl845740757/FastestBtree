@@ -18,7 +18,6 @@
 
 using System;
 using System.Diagnostics;
-using Wjybxx.BTree.FSM;
 using Wjybxx.Commons;
 
 namespace Wjybxx.BTree
@@ -50,8 +49,6 @@ public class TaskEntry<T> : Task<T> where T : class
     [NonSerialized] protected ITreeLoader treeLoader;
     /** 当前帧号 */
     [NonSerialized] private int curFrame;
-    /** 用于Entry的事件驱动 */
-    [NonSerialized] protected ITaskEntryHandler<T>? handler;
     /** 用于内联优化 */
     [NonSerialized] protected TaskInlineHelper<T> inlineHelper = new TaskInlineHelper<T>();
 
@@ -93,11 +90,6 @@ public class TaskEntry<T> : Task<T> where T : class
         set => treeLoader = value ?? ITreeLoader.NullLoader();
     }
 
-    public ITaskEntryHandler<T>? Handler {
-        get => handler;
-        set => handler = value;
-    }
-
     public new object? Entity {
         get => entity;
         set => entity = value;
@@ -108,25 +100,6 @@ public class TaskEntry<T> : Task<T> where T : class
     #endregion
 
     #region logic
-
-    /// <summary>
-    /// C# await语法支持
-    /// </summary>
-    /// <returns></returns>
-    public TaskAwaiter<T> GetAwaiter() => new TaskAwaiter<T>(this);
-
-    /// <summary>
-    /// 获取根状态机
-    /// 状态机太重要了，值得我们为其提供各种快捷方法
-    /// </summary>
-    /// <returns></returns>
-    /// <exception cref="IllegalStateException"></exception>
-    public StateMachineTask<T> GetRootStateMachine() {
-        if (rootTask is StateMachineTask<T> stateMachine) {
-            return stateMachine;
-        }
-        throw new IllegalStateException("rootTask is not state machine task");
-    }
 
     /// <summary>
     /// 普通Update
@@ -142,28 +115,6 @@ public class TaskEntry<T> : Task<T> where T : class
         }
     }
 
-    /// <summary>
-    /// 以内联的方式Update。
-    /// 一般情况下，TaskEntry除了驱动root节点运行外，便没有额外逻辑，因此以内联的方式运行可省一些不必要的调用栈。
-    /// </summary>
-    /// <param name="curFrame">当前帧号</param>
-    public void UpdateInlined(int curFrame) {
-        this.curFrame = curFrame;
-        if (IsRunning) {
-            Task<T>? inlinedChild = inlineHelper.GetInlinedChild();
-            if (inlinedChild != null) {
-                inlinedChild.Template_ExecuteInlined(ref inlineHelper, rootTask!);
-            } else if (rootTask!.IsRunning) {
-                rootTask.Template_Execute(true);
-            } else {
-                Template_StartChild(rootTask, true);
-            }
-        } else {
-            Debug.Assert(IsInited());
-            Template_Start(null, 0);
-        }
-    }
-
     /** 如果行为树代表的是一个条件树，则可以调用该方法；失败的情况下可以通过Status获取错误码 */
     public bool Test() {
         Debug.Assert(IsInited());
@@ -171,33 +122,21 @@ public class TaskEntry<T> : Task<T> where T : class
         return IsSucceeded;
     }
 
-    protected override void Execute() {
+    protected override int Execute() {
         Task<T>? inlinedChild = inlineHelper.GetInlinedChild();
         if (inlinedChild != null) {
             inlinedChild.Template_ExecuteInlined(ref inlineHelper, rootTask!);
         } else if (rootTask!.IsRunning) {
             rootTask.Template_Execute(true);
         } else {
-            Template_StartChild(rootTask, true);
+            Template_StartChild(rootTask, true, ref inlineHelper);
         }
+        return rootTask.Status;
     }
 
     protected override void Exit() {
         inlineHelper.StopInline();
         cancelToken.Reset(); // 避免内存泄漏
-    }
-
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        inlineHelper.StopInline();
-
-        SetCompleted(child.Status, true);
-        if (handler != null) {
-            handler.OnCompleted(this);
-        }
     }
 
     public override bool CanHandleEvent(object eventObj) {

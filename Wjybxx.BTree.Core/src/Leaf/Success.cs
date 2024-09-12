@@ -24,8 +24,8 @@ namespace Wjybxx.BTree.Leaf
 /// <typeparam name="T"></typeparam>
 public class Success<T> : LeafTask<T> where T : class
 {
-    protected override void Execute() {
-        SetSuccess();
+    protected override int Execute() {
+        return TaskStatus.SUCCESS;
     }
 
     protected override void OnEventImpl(object eventObj) {

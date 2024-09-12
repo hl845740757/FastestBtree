@@ -35,7 +35,7 @@ public class ActiveSelector<T> : SingleRunningChildBranch<T> where T : class
     public ActiveSelector(List<Task<T>>? children) : base(children) {
     }
 
-    protected override void Execute() {
+    protected override int Execute() {
         Task<T> childToRun = null;
         int childIndex = -1;
         for (int idx = 0; idx < children.Count; idx++) {
@@ -50,8 +50,7 @@ public class ActiveSelector<T> : SingleRunningChildBranch<T> where T : class
 
         if (childToRun == null) {
             Stop(this.runningChild); // 不清理index，允许退出后查询最后一次运行的child
-            SetFailed(TaskStatus.ERROR);
-            return;
+            return TaskStatus.ERROR;
         }
 
         Task<T> runningChild = this.runningChild;
@@ -62,7 +61,7 @@ public class ActiveSelector<T> : SingleRunningChildBranch<T> where T : class
             } else if (runningChild.IsRunning) {
                 runningChild.Template_Execute(true);
             } else {
-                Template_StartChild(runningChild, false);
+                Template_StartChild(runningChild, false, ref inlineHelper);
             }
         } else {
             if (runningChild != null) {
@@ -71,18 +70,13 @@ public class ActiveSelector<T> : SingleRunningChildBranch<T> where T : class
             }
             this.runningChild = childToRun;
             this.runningIndex = childIndex;
-            Template_StartChild(childToRun, false);
+            Template_StartChild(childToRun, false, ref inlineHelper);
         }
+        return childToRun.Status;
     }
 
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        runningChild = null;
-        inlineHelper.StopInline();
-        SetCompleted(child.Status, true);
+    protected override int OnChildCompleted(Task<T> child) {
+        throw new System.NotImplementedException();
     }
 }
 }

@@ -32,8 +32,7 @@ public abstract class Decorator<T> : Task<T> where T : class
 
     /// <summary>
     /// 被内联运行的子节点
-    /// 1.该字段定义在这里是为了减少抽象层次，该类并不提供功能。
-    /// 2.子类要支持实现内联优化时，应当在<see cref="OnChildRunning"/>和<see cref="Task{T}.OnChildCompleted"/>维护字段引用。
+    /// 该字段定义在这里是为了减少抽象层次，该类并不提供功能，需要子类在Start子节点的时候启用内联。
     /// </summary>
     [NonSerialized]
     protected TaskInlineHelper<T> inlineHelper = new TaskInlineHelper<T>();
@@ -72,10 +71,6 @@ public abstract class Decorator<T> : Task<T> where T : class
         } else if (child != null) {
             child.OnEvent(eventObj);
         }
-    }
-
-    /** 子类如果支持内联，则重写该方法(超类不能安全内联) */
-    protected override void OnChildRunning(Task<T> child) {
     }
 
     #endregion

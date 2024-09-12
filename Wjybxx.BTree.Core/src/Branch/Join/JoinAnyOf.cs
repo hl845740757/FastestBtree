@@ -36,15 +36,16 @@ public class JoinAnyOf<T> : JoinPolicy<T> where T : class
     public void BeforeEnter(Join<T> join) {
     }
 
-    public void Enter(Join<T> join) {
+    public int Enter(Join<T> join) {
         // 不能成功，失败也不能
         if (join.ChildCount == 0) {
             TaskLogger.Info("JonAnyOf: children is empty");
         }
+        return TaskStatus.RUNNING;
     }
 
-    public void OnChildCompleted(Join<T> join, Task<T> child) {
-        join.SetCompleted(child.Status, true);
+    public int OnChildCompleted(Join<T> join, Task<T> child) {
+        return child.Status;
     }
 
     public void OnEvent(Join<T> join, object eventObj) {

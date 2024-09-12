@@ -26,8 +26,8 @@ public class Failure<T> : LeafTask<T> where T : class
 {
     private int failureStatus;
 
-    protected override void Execute() {
-        SetFailed(TaskStatus.ToFailure(failureStatus));
+    protected override int Execute() {
+        return TaskStatus.ToFailure(failureStatus);
     }
 
     protected override void OnEventImpl(object eventObj) {

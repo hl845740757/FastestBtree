@@ -49,43 +49,36 @@ public class SelectorN<T> : SingleRunningChildBranch<T> where T : class
         count = 0;
     }
 
-    protected override void Enter(int reentryId) {
+    protected override int Enter() {
         if (required < 1) {
-            SetSuccess();
+            return TaskStatus.SUCCESS;
         } else if (ChildCount == 0) {
-            SetFailed(TaskStatus.CHILDLESS);
+            return TaskStatus.CHILDLESS;
         } else if (CheckFailFast()) {
-            SetFailed(TaskStatus.INSUFFICIENT_CHILD);
+            return TaskStatus.INSUFFICIENT_CHILD;
         } else if (IsCheckingGuard()) {
             // 条件检测性能优化
             for (int i = 0; i < children.Count; i++) {
                 Task<T> child = children[i];
                 if (Template_CheckGuard(child) && ++count >= required) {
-                    SetSuccess();
-                    return;
+                    return TaskStatus.SUCCESS;
                 }
             }
-            SetFailed(TaskStatus.ERROR);
+            return TaskStatus.ERROR;
         }
+        return TaskStatus.RUNNING;
     }
 
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        runningChild = null;
-        inlineHelper.StopInline();
+    protected override int OnChildCompleted(Task<T> child) {
         if (child.IsCancelled) {
-            SetCancelled();
-            return;
+            return TaskStatus.CANCELLED;
         }
         if (child.IsSucceeded && ++count >= required) {
-            SetSuccess();
+            return TaskStatus.SUCCESS;
         } else if (IsAllChildCompleted || CheckFailFast()) {
-            SetFailed(TaskStatus.ERROR);
+            return TaskStatus.ERROR;
         } else {
-            Template_Execute(false);
+            return TaskStatus.RUNNING;
         }
     }
 

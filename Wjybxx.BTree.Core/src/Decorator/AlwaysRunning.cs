@@ -41,13 +41,13 @@ public class AlwaysRunning<T> : Decorator<T> where T : class
         started = false;
     }
 
-    protected override void Execute() {
+    protected override int Execute() {
         Task<T> child = this.child;
         if (child == null) {
-            return;
+            return TaskStatus.RUNNING;
         }
         if (started && child.IsCompleted) { // 勿轻易调整
-            return;
+            return TaskStatus.RUNNING;
         }
         Task<T>? inlinedChild = inlineHelper.GetInlinedChild();
         if (inlinedChild != null) {
@@ -56,20 +56,10 @@ public class AlwaysRunning<T> : Decorator<T> where T : class
             child.Template_Execute(true);
         } else {
             started = true;
-            Template_StartChild(child, true);
+            Template_StartChild(child, true, ref inlineHelper);
         }
-    }
-
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        inlineHelper.StopInline();
-        // 不响应其它状态，但还是需要响应取消...
-        if (child.IsCancelled) {
-            SetCancelled();
-        }
+        // 需要响应取消
+        return child.IsCancelled ? TaskStatus.CANCELLED : TaskStatus.RUNNING;
     }
 }
 }

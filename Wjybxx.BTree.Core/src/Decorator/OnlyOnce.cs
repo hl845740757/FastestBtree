@@ -33,10 +33,9 @@ public class OnlyOnce<T> : Decorator<T> where T : class
     public OnlyOnce(Task<T> child) : base(child) {
     }
 
-    protected override void Execute() {
+    protected override int Execute() {
         if (child.IsCompleted) {
-            SetCompleted(child.Status, true);
-            return;
+            return child.Status;
         }
         Task<T>? inlinedChild = inlineHelper.GetInlinedChild();
         if (inlinedChild != null) {
@@ -44,17 +43,9 @@ public class OnlyOnce<T> : Decorator<T> where T : class
         } else if (child.IsRunning) {
             child.Template_Execute(true);
         } else {
-            Template_StartChild(child, true);
+            Template_StartChild(child, true, ref inlineHelper);
         }
-    }
-
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        inlineHelper.StopInline();
-        SetCompleted(child.Status, true);
+        return child.Status;
     }
 }
 }

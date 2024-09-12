@@ -58,7 +58,7 @@ internal static class TaskOverrides
             if (IsSkippable(clazz, "BeforeEnter")) {
                 mask &= ~MASK_BEFORE_ENTER;
             }
-            if (IsSkippable(clazz, "Enter", TYPE_INT32)) {
+            if (IsSkippable(clazz, "Enter")) {
                 mask &= ~MASK_ENTER;
             }
             if (IsSkippable(clazz, "Exit")) {

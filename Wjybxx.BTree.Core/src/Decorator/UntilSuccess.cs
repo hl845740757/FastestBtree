@@ -30,22 +30,16 @@ public class UntilSuccess<T> : LoopDecorator<T> where T : class
     public UntilSuccess(Task<T> child) : base(child) {
     }
 
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        inlineHelper.StopInline();
+    protected override int OnChildCompleted(Task<T> child) {
         if (child.IsCancelled) {
-            SetCancelled();
-            return;
+            return TaskStatus.CANCELLED;
         }
         if (child.IsSucceeded) {
-            SetSuccess();
+            return TaskStatus.SUCCESS;
         } else if (!HasNextLoop()) {
-            SetFailed(TaskStatus.MAX_LOOP_LIMIT);
+            return TaskStatus.MAX_LOOP_LIMIT;
         } else {
-            Template_Execute(false);
+            return TaskStatus.RUNNING;
         }
     }
 }

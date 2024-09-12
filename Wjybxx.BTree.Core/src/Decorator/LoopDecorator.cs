@@ -43,17 +43,33 @@ public abstract class LoopDecorator<T> : Decorator<T> where T : class
         curLoop = 0;
     }
 
-    protected override void Execute() {
-        Task<T>? inlinedChild = inlineHelper.GetInlinedChild();
-        if (inlinedChild != null) {
-            inlinedChild.Template_ExecuteInlined(ref inlineHelper, child);
-        } else if (child.IsRunning) {
-            child.Template_Execute(true);
-        } else {
-            curLoop++;
-            Template_StartChild(child, true);
+    protected override int Execute() {
+        while (true) {
+            Task<T>? inlinedChild = inlineHelper.GetInlinedChild();
+            if (inlinedChild != null) {
+                inlinedChild.Template_ExecuteInlined(ref inlineHelper, child);
+            } else if (child.IsRunning) {
+                child.Template_Execute(true);
+            } else {
+                curLoop++;
+                Template_StartChild(child, true, ref inlineHelper);
+            }
+
+            if (child.IsRunning) {
+                return TaskStatus.RUNNING;
+            }
+            int result = OnChildCompleted(child);
+            if (result != TaskStatus.RUNNING) {
+                return result;
+            }
         }
     }
+
+    /// <summary>
+    /// 尝试计算结果
+    /// </summary>
+    /// <param name="child"></param>
+    protected abstract int OnChildCompleted(Task<T> child);
 
     /** 是否还有下一次循环 */
     public bool HasNextLoop() {

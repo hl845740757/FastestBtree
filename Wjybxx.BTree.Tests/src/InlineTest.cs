@@ -61,10 +61,11 @@ public class InlineTest
     {
         internal object? eventObj;
 
-        protected override void Execute() {
+        protected override int Execute() {
             if (RunFrames >= 10) {
-                SetSuccess();
+                return TaskStatus.SUCCESS;
             }
+            return TaskStatus.RUNNING;
         }
 
         protected override void OnEventImpl(object eventObj) {

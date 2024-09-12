@@ -33,10 +33,11 @@ public class WaitFrame<T> : LeafTask<T> where T : class
         this.required = required;
     }
 
-    protected override void Execute() {
+    protected override int Execute() {
         if (RunFrames >= required) {
-            SetSuccess();
+            return TaskStatus.SUCCESS;
         }
+        return TaskStatus.RUNNING;
     }
 
     protected override void OnEventImpl(object eventObj) {

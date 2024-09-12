@@ -17,25 +17,13 @@
 #endregion
 
 using NUnit.Framework;
-using NUnit.Framework.Internal;
 using Wjybxx.BTree;
-using Wjybxx.BTree.FSM;
 using Wjybxx.BTree.Leaf;
 
 namespace BTree.Tests;
 
 public class ActiveTest
 {
-    private static TaskEntry<Blackboard> newStateMachineTree() {
-        StateMachineTask<Blackboard> stateMachineTask = new StateMachineTask<Blackboard>();
-        stateMachineTask.Name = "RootStateMachine";
-        stateMachineTask.Handler = StateMachineHandlers.DefaultHandler<Blackboard>();
-
-        TaskEntry<Blackboard> taskEntry = BtreeTestUtil.newTaskEntry();
-        taskEntry.RootTask = stateMachineTask;
-        return taskEntry;
-    }
-
     /// <summary>
     /// waitframe本应该在第5帧完成，但我们暂停了其心跳，在第9帧后启用心跳，第10帧就完成
     /// </summary>
@@ -54,7 +42,7 @@ public class ActiveTest
         });
         Assert.AreEqual(10, taskEntry.RootTask.RunFrames);
     }
-    
+
     /** 测试active为false的情况下在第9帧取消 */
     [Test]
     public void testCancel() {

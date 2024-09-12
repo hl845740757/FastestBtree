@@ -31,10 +31,9 @@ public class AlwaysSuccess<T> : Decorator<T> where T : class
     public AlwaysSuccess(Task<T> child) : base(child) {
     }
 
-    protected override void Execute() {
+    protected override int Execute() {
         if (child == null) {
-            SetSuccess();
-            return;
+            return TaskStatus.SUCCESS;
         }
         Task<T>? inlinedChild = inlineHelper.GetInlinedChild();
         if (inlinedChild != null) {
@@ -42,17 +41,9 @@ public class AlwaysSuccess<T> : Decorator<T> where T : class
         } else if (child.IsRunning) {
             child.Template_Execute(true);
         } else {
-            Template_StartChild(child, true);
+            Template_StartChild(child, true, ref inlineHelper);
         }
-    }
-
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        inlineHelper.StopInline();
-        SetSuccess();
+        return child.IsCompleted ? TaskStatus.SUCCESS : TaskStatus.RUNNING;
     }
 }
 }

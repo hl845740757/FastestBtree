@@ -44,13 +44,12 @@ public class JoinTest
     }
 
     // region
-    private class Counter<T> : ActionTask<T> where T : class
+    private class Counter<T> : LeafTask<T> where T : class
     {
-        protected override int ExecuteImpl() {
+        protected override int Execute() {
             // 不能过于简单成功，否则无法覆盖所有情况
             if (BtreeTestUtil.random.Next(2) == 1) {
                 globalCount++;
-                SetSuccess();
                 return TaskStatus.SUCCESS;
             }
             return TaskStatus.RUNNING;

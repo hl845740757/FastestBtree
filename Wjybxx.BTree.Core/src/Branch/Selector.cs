@@ -36,39 +36,32 @@ public class Selector<T> : SingleRunningChildBranch<T> where T : class
     public Selector(Task<T> first, Task<T>? second) : base(first, second) {
     }
 
-    protected override void Enter(int reentryId) {
+    protected override int Enter() {
         if (children.Count == 0) {
-            SetFailed(TaskStatus.CHILDLESS);
+            return TaskStatus.CHILDLESS;
         } else if (IsCheckingGuard()) {
             // 条件检测性能优化
             for (int i = 0; i < children.Count; i++) {
                 Task<T> child = children[i];
                 if (Template_CheckGuard(child)) {
-                    SetSuccess();
-                    return;
+                    return TaskStatus.SUCCESS;
                 }
             }
-            SetFailed(TaskStatus.ERROR);
+            return TaskStatus.ERROR;
         }
+        return TaskStatus.RUNNING;
     }
 
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        runningChild = null;
-        inlineHelper.StopInline();
+    protected override int OnChildCompleted(Task<T> child) {
         if (child.IsCancelled) {
-            SetCancelled();
-            return;
+            return TaskStatus.CANCELLED;
         }
         if (child.IsSucceeded) {
-            SetSuccess();
+            return TaskStatus.SUCCESS;
         } else if (IsAllChildCompleted) {
-            SetFailed(TaskStatus.ERROR);
+            return TaskStatus.ERROR;
         } else {
-            Template_Execute(false);
+            return TaskStatus.RUNNING;
         }
     }
 }

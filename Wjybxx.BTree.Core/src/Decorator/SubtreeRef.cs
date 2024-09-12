@@ -44,24 +44,16 @@ public class SubtreeRef<T> : Decorator<T> where T : class
         }
     }
 
-    protected override void Execute() {
+    protected override int Execute() {
         Task<T>? inlinedChild = inlineHelper.GetInlinedChild();
         if (inlinedChild != null) {
             inlinedChild.Template_ExecuteInlined(ref inlineHelper, child);
         } else if (child.IsRunning) {
             child.Template_Execute(true);
         } else {
-            Template_StartChild(child, true);
+            Template_StartChild(child, true, ref inlineHelper);
         }
-    }
-
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        inlineHelper.StopInline();
-        SetCompleted(child.Status, true);
+        return child.Status;
     }
 
     /// <summary>

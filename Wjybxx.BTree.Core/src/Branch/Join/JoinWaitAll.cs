@@ -36,16 +36,18 @@ public class JoinWaitAll<T> : JoinPolicy<T> where T : class
     public void BeforeEnter(Join<T> join) {
     }
 
-    public void Enter(Join<T> join) {
+    public int Enter(Join<T> join) {
         if (join.ChildCount == 0) {
-            join.SetSuccess();
+            return TaskStatus.SUCCESS;
         }
+        return TaskStatus.RUNNING;
     }
 
-    public void OnChildCompleted(Join<T> join, Task<T> child) {
+    public int OnChildCompleted(Join<T> join, Task<T> child) {
         if (join.IsAllChildCompleted) {
-            join.SetSuccess();
+            return TaskStatus.SUCCESS;
         }
+        return TaskStatus.RUNNING;
     }
 
     public void OnEvent(Join<T> join, object eventObj) {

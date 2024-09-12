@@ -35,18 +35,21 @@ public class JoinSequence<T> : JoinPolicy<T> where T : class
     public void BeforeEnter(Join<T> join) {
     }
 
-    public void Enter(Join<T> join) {
+    public int Enter(Join<T> join) {
         if (join.ChildCount == 0) {
-            join.SetSuccess();
+            return TaskStatus.SUCCESS;
         }
+        return TaskStatus.RUNNING;
     }
 
-    public void OnChildCompleted(Join<T> join, Task<T> child) {
+    public int OnChildCompleted(Join<T> join, Task<T> child) {
         if (!child.IsSucceeded) {
-            join.SetCompleted(child.Status, true);
-        } else if (join.IsAllChildSucceeded) {
-            join.SetSuccess();
+            return child.Status;
         }
+        if (join.IsAllChildSucceeded) {
+            return TaskStatus.SUCCESS;
+        }
+        return TaskStatus.RUNNING;
     }
 
     public void OnEvent(Join<T> join, object eventObj) {

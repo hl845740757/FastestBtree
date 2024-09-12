@@ -40,12 +40,8 @@ internal class BtreeTestUtil
 
     public static void untilCompleted<T>(TaskEntry<T> entry) where T : class {
         for (int idx = 0; idx < 200; idx++) { // 避免死循环
-            if (MathCommon.IsEven(idx)) {
-                entry.Update(idx);
-            } else {
-                entry.UpdateInlined(idx);
-            }
-            if (entry.IsCompleted) return;
+            entry.Update(idx);
+            if (entry.IsCompleted)return;
         }
         throw new InfiniteLoopException();
     }

@@ -33,27 +33,21 @@ public class Foreach<T> : SingleRunningChildBranch<T> where T : class
     public Foreach(List<Task<T>>? children) : base(children) {
     }
 
-    protected override void Enter(int reentryId) {
+    protected override int Enter() {
         if (children.Count == 0) {
-            SetSuccess();
+            return TaskStatus.SUCCESS;
         }
+        return TaskStatus.RUNNING;
     }
 
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        runningChild = null;
-        inlineHelper.StopInline();
+    protected override int OnChildCompleted(Task<T> child) {
         if (child.IsCancelled) {
-            SetCancelled();
-            return;
+            return TaskStatus.CANCELLED;
         }
         if (IsAllChildCompleted) {
-            SetSuccess();
+            return TaskStatus.SUCCESS;
         } else {
-            Template_Execute(false);
+            return TaskStatus.RUNNING;
         }
     }
 }

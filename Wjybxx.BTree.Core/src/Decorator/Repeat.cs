@@ -63,22 +63,17 @@ public class Repeat<T> : LoopDecorator<T> where T : class
         count = 0;
     }
 
-    protected override void Enter(int reentryId) {
-        base.Enter(reentryId);
+    protected override int Enter() {
+        base.Enter();
         if (required == 0) {
-            SetSuccess();
+            return TaskStatus.SUCCESS;
         }
+        return TaskStatus.RUNNING;
     }
 
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        inlineHelper.StopInline();
+    protected override int OnChildCompleted(Task<T> child) {
         if (child.IsCancelled) {
-            SetCancelled();
-            return;
+            return TaskStatus.CANCELLED;
         }
         bool match = countMode switch
         {
@@ -90,15 +85,13 @@ public class Repeat<T> : LoopDecorator<T> where T : class
         if (match) {
             count++;
             if (required >= 0 && count >= required) {
-                SetSuccess();
-                return;
+                return TaskStatus.SUCCESS;
             }
         }
-
         if (!HasNextLoop()) {
-            SetFailed(TaskStatus.MAX_LOOP_LIMIT);
+            return TaskStatus.MAX_LOOP_LIMIT;
         } else {
-            Template_Execute(false);
+            return TaskStatus.RUNNING;
         }
     }
 

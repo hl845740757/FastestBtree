@@ -171,11 +171,11 @@ public class SingleRunningTest1
             this.frame = frame;
         }
 
-        protected override void Execute() {
+        protected override int Execute() {
             if (taskEntry.CurFrame >= frame) {
-                SetFailed(TaskStatus.ERROR);
+                return TaskStatus.ERROR;
             } else {
-                SetSuccess();
+                return TaskStatus.SUCCESS;
             }
         }
 

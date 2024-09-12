@@ -31,7 +31,7 @@ public class AlwaysCheckGuard<T> : Decorator<T> where T : class
     public AlwaysCheckGuard(Task<T> child) : base(child) {
     }
 
-    protected override void Execute() {
+    protected override int Execute() {
         if (Template_CheckGuard(child.Guard)) {
             Task<T>? inlinedChild = inlineHelper.GetInlinedChild();
             if (inlinedChild != null) {
@@ -39,22 +39,14 @@ public class AlwaysCheckGuard<T> : Decorator<T> where T : class
             } else if (child.IsRunning) {
                 child.Template_Execute(true);
             } else {
-                Template_StartChild(child, false);
+                Template_StartChild(child, false, ref inlineHelper);
             }
+            return child.Status;
         } else {
             child.Stop();
             inlineHelper.StopInline(); // help gc
-            SetFailed(TaskStatus.ERROR);
+            return TaskStatus.ERROR;
         }
-    }
-
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        inlineHelper.StopInline();
-        SetCompleted(child.Status, true);
     }
 }
 }

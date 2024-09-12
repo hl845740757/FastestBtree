@@ -56,16 +56,16 @@ public class Join<T> : ParallelBranch<T> where T : class
         policy.BeforeEnter(this);
     }
 
-    protected override void Enter(int reentryId) {
+    protected override int Enter() {
         // 记录子类上下文 -- 由于beforeEnter可能改变子节点信息，因此在enter时处理
         InitChildHelpers(IsCancelTokenPerChild);
-        policy.Enter(this);
+        return policy.Enter(this);
     }
 
-    protected override void Execute() {
+    protected override int Execute() {
         List<Task<T>> children = this.children;
         if (children.Count == 0) {
-            return;
+            return TaskStatus.RUNNING;
         }
         int reentryId = ReentryId;
         for (int i = 0; i < children.Count; i++) {
@@ -82,32 +82,28 @@ public class Join<T> : ParallelBranch<T> where T : class
                 child.Template_Execute(true);
             } else {
                 SetChildCancelToken(child, childHelper.cancelToken); // 运行前赋值取消令牌
-                Template_StartChild(child, true);
+                Template_StartChild(child, true, ref childHelper.Unwrap());
+            }
+            if (child.IsCompleted) {
+                UnsetChildCancelToken(child); // 运行结束删除令牌
+                // 尝试计算结果
+                completedCount++;
+                if (child.IsSucceeded) {
+                    succeededCount++;
+                }
+                int result = policy.OnChildCompleted(this, child);
+                if (result != TaskStatus.RUNNING) {
+                    return result;
+                }
             }
             if (CheckCancel(reentryId)) {
-                return;
+                return TaskStatus.CANCELLED;
             }
         }
         if (completedCount >= children.Count) { // child全部执行，但没得出结果
             throw new IllegalStateException();
         }
-    }
-
-    protected override void OnChildRunning(Task<T> child) {
-        ParallelChildHelper<T> childHelper = GetChildHelper(child);
-        childHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        ParallelChildHelper<T> childHelper = GetChildHelper(child);
-        childHelper.StopInline();
-        UnsetChildCancelToken(child); // 删除分配的token
-
-        completedCount++;
-        if (child.IsSucceeded) {
-            succeededCount++;
-        }
-        policy.OnChildCompleted(this, child);
+        return TaskStatus.RUNNING;
     }
 
     protected override void OnEventImpl(object eventObj) {

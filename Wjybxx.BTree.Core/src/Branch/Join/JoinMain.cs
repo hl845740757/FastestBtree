@@ -38,17 +38,19 @@ public class JoinMain<T> : JoinPolicy<T> where T : class
     public void BeforeEnter(Join<T> join) {
     }
 
-    public void Enter(Join<T> join) {
+    public int Enter(Join<T> join) {
         if (join.ChildCount == 0) {
-            join.SetFailed(TaskStatus.CHILDLESS);
+            return TaskStatus.CHILDLESS;
         }
+        return TaskStatus.RUNNING;
     }
 
-    public void OnChildCompleted(Join<T> join, Task<T> child) {
+    public int OnChildCompleted(Join<T> join, Task<T> child) {
         Task<T> mainTask = join.GetFirstChild();
         if (child == mainTask) {
-            join.SetCompleted(child.Status, true);
+            return child.Status;
         }
+        return TaskStatus.RUNNING;
     }
 
     public void OnEvent(Join<T> join, object eventObj) {

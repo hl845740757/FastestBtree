@@ -35,11 +35,12 @@ public class ServiceParallel<T> : ParallelBranch<T> where T : class
     public ServiceParallel(List<Task<T>>? children) : base(children) {
     }
 
-    protected override void Enter(int reentryId) {
+    protected override int Enter() {
         InitChildHelpers(false);
+        return TaskStatus.RUNNING;
     }
 
-    protected override void Execute() {
+    protected override int Execute() {
         List<Task<T>> children = this.children;
         for (int idx = 0; idx < children.Count; idx++) {
             Task<T> child = children[idx];
@@ -50,19 +51,10 @@ public class ServiceParallel<T> : ParallelBranch<T> where T : class
             } else if (child.IsRunning) {
                 child.Template_Execute(true);
             } else {
-                Template_StartChild(child, true);
+                Template_StartChild(child, true, ref childHelper.Unwrap());
             }
         }
-    }
-
-    protected override void OnChildRunning(Task<T> child) {
-        ParallelChildHelper<T> childHelper = GetChildHelper(child);
-        childHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        ParallelChildHelper<T> childHelper = GetChildHelper(child);
-        childHelper.StopInline();
+        return TaskStatus.RUNNING;
     }
 
     protected override void OnEventImpl(object eventObj) {

@@ -36,31 +36,24 @@ public class Inverter<T> : Decorator<T> where T : class
     public Inverter(Task<T> child) : base(child) {
     }
 
-    protected override void Enter(int reentryId) {
+    protected override int Enter() {
         if (IsCheckingGuard()) {
             Template_CheckGuard(child);
-            SetCompleted(TaskStatus.Invert(child.Status), true);
+            return TaskStatus.Invert(child.Status);
         }
+        return TaskStatus.RUNNING;
     }
 
-    protected override void Execute() {
+    protected override int Execute() {
         Task<T>? inlinedChild = inlineHelper.GetInlinedChild();
         if (inlinedChild != null) {
             inlinedChild.Template_ExecuteInlined(ref inlineHelper, child);
         } else if (child.IsRunning) {
             child.Template_Execute(true);
         } else {
-            Template_StartChild(child, true);
+            Template_StartChild(child, true, ref inlineHelper);
         }
-    }
-
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        inlineHelper.StopInline();
-        SetCompleted(TaskStatus.Invert(child.Status), true);
+        return child.IsCompleted ? TaskStatus.Invert(child.Status) : TaskStatus.RUNNING;
     }
 }
 }

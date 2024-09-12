@@ -42,6 +42,8 @@ namespace Wjybxx.BTree
 /// Task是泛型的，我的Dson库将支持泛型类的序列化；BTree.Codec中的编解码器由Dson库的注解处理器生成。
 /// (脚本在测试用例模块)
 ///
+/// 提供了条件编译参数 TASK_MANUAL_CHECK_CANCEL 可关闭模板方法中的大量取消信号检测
+///
 /// <typeparam name="T">黑板的类型</typeparam>
 /// </summary>
 public abstract class Task<T> : ICancelTokenListener where T : class
@@ -122,6 +124,8 @@ public abstract class Task<T> : ICancelTokenListener where T : class
     [NonSerialized] private int exitFrame;
     /** 重入Id，只增不减 -- 用于事件驱动下检测冲突（递归）；reset时不重置，甚至也增加 */
     [NonSerialized] private short reentryId;
+    /** 被内联执行时的状态 */
+    [NonSerialized] private int delayedStatus;
 
     /// <summary>
     /// 任务绑定的前置条件(precondition太长...)
@@ -307,17 +311,20 @@ public abstract class Task<T> : ICancelTokenListener where T : class
     /// 2.如果要初始化子节点，也放到<see cref="BeforeEnter"/>方法;
     /// 3.允许更新自己为完成状态
     /// </summary>
-    /// <param name="reentryId">用于判断父类是否使任务进入了完成状态；虽然也可先捕获再调用超类方法，但传入会方便许多。</param>
-    protected virtual void Enter(int reentryId) {
+    /// <returns>最新状态</returns>
+    protected virtual int Enter() {
+        return TaskStatus.RUNNING;
     }
 
     /// <summary>
     /// Task的心跳方法，在Task进入完成状态之前会反复执行。
-    /// 1.运行中可通过<see cref="SetSuccess"/>、<see cref="SetFailed"/>、<see cref="SetCancelled"/>将自己更新为完成状态。
-    /// 2.如果不想和<see cref="Enter"/>同步执行，可通过<see cref="IsSlowStart"/> 实现。
-    /// 3.不建议直接调用该方法，而是通过模板方法<see cref="Template_Execute"/>运行。
+    /// 1.如果不想和<see cref="Enter"/>同步执行，可通过<see cref="IsSlowStart"/> 实现。
+    /// 2.不建议直接调用该方法，而是通过模板方法<see cref="Template_Execute"/>运行。
+    ///
+    /// 注意：如果是支持被内联的Task，第一行应当是运行处于运行状态的子节点，包含<see cref="TaskInlineHelper{T}"/>。
     /// </summary>
-    protected abstract void Execute();
+    /// <returns>最新状态</returns>
+    protected abstract int Execute();
 
     /// <summary>
     /// 该方法在Task进入完成状态时执行
@@ -328,60 +335,37 @@ public abstract class Task<T> : ICancelTokenListener where T : class
     protected virtual void Exit() {
     }
 
-    /** 设置为运行成功 */
+    /** 设置为前提失败 */
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void SetSuccess() {
-        Debug.Assert(this.status == TaskStatus.RUNNING);
-        this.status = TaskStatus.SUCCESS;
-        Template_Exit();
-        if ((ctl & MASK_DISABLE_NOTIFY) == 0 && control != null) {
-            control.OnChildCompleted(this);
-        }
-    }
-
-    /** 设置为取消 */
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void SetCancelled() {
-        SetCompleted(TaskStatus.CANCELLED, false);
-    }
-
-    /** 设置为执行失败 */
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void SetFailed(int status) {
-        if (status < TaskStatus.ERROR) {
-            throw new ArgumentException("status " + status);
-        }
-        SetCompleted(status, false);
-    }
-
-    /// <summary>
-    /// 设置为前置条件测试失败
-    /// 1.该方法仅适用于control测试child的guard失败，令child在未运行的情况下直接失败的情况。
-    /// 2.对于运行中的child，如果发现child的guard失败，不能继续运行，应当取消子节点的执行（stop）。
-    /// </summary>
-    /// <param name="control">由于task未运行，其control可能尚未赋值，因此要传入</param>
-    /// <param name="isHook">是否是钩子任务，钩子任务则禁用回调</param>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void SetGuardFailed(Task<T> control, bool isHook) {
+    private void SetGuardFailed(Task<T> control, bool isHook) {
         Debug.Assert(this.status != TaskStatus.RUNNING);
-        SetCtlBit(MASK_DISABLE_NOTIFY, isHook); // 需要覆盖旧值
+        // SetCtlBit(MASK_DISABLE_NOTIFY, isHook); // 需要覆盖旧值
         SetControl(control);
-        SetCompleted(TaskStatus.GUARD_FAILED, false);
+        SetCompleted(TaskStatus.GUARD_FAILED);
     }
 
-    /** 设置为完成 -- 通常用于通过子节点的结果设置自己 */
-    public void SetCompleted(int status, bool fromChild) {
+    /** 设置为完成 */
+    private int SetCompleted(int status) {
         if (status < TaskStatus.SUCCESS) throw new ArgumentException();
-        if (status == TaskStatus.GUARD_FAILED && fromChild) {
-            status = TaskStatus.ERROR; // GUARD_FAILED 不能向上传播
+        if (status == TaskStatus.GUARD_FAILED) {
+            status = TaskStatus.ERROR; // 心跳驱动下使用GUARD_FAILED不安全
         }
         int prevStatus = this.status;
         if (prevStatus == TaskStatus.RUNNING) {
-            if (status == TaskStatus.GUARD_FAILED) {
-                throw new ArgumentException("Running task cant fail with 'GUARD_FAILED'");
-            }
             this.status = status;
-            Template_Exit();
+            this.delayedStatus = 0;
+
+            // 内联template_exit
+            if ((ctl & MASK_REGISTERED_LISTENER) != 0) {
+                cancelToken.RemListener(this);
+            }
+            exitFrame = taskEntry.CurFrame;
+            StopRunningChildren(); // 停止有特殊顺序，不能使用访问器
+            if ((ctl & TaskOverrides.MASK_EXIT) != 0) {
+                Exit();
+            }
+            ReleaseContext();
+            reentryId++;
         } else {
             // 未调用Enter和Exit，需要补偿 -- 保留当前的ctl会更好
             this.PrevStatus = prevStatus;
@@ -390,31 +374,10 @@ public abstract class Task<T> : ICancelTokenListener where T : class
 
             ctl |= MASK_STILLBORN;
             this.status = status;
+            this.delayedStatus = 0;
         }
-        if ((ctl & MASK_DISABLE_NOTIFY) == 0 && control != null) {
-            control.OnChildCompleted(this);
-        }
+        return status;
     }
-
-    /// <summary>
-    /// 子节点还需要继续运行
-    /// 1.child在一次运行期间只会通知一次
-    /// 2.该方法不应该触发状态迁移，即不应该使自己进入完成状态
-    /// </summary>
-    /// <param name="child"></param>
-    protected abstract void OnChildRunning(Task<T> child);
-
-    /// <summary>
-    /// 子节点进入完成状态
-    /// 1.避免方法数太多，实现类测试task的status即可
-    /// 2.<see cref="NormalizedStatus"/>有助于switch测试
-    /// 3.task可能是取消状态，甚至可能没运行过直接失败（前置条件失败）
-    /// 4.钩子任务和guard不会调用该方法
-    /// 5.同一子节点连续通知的情况下，completed的逻辑应当覆盖<see cref="OnChildRunning"/>的影响。
-    /// 6.任何的回调和事件方法中都由用户自身检测取消信号
-    /// </summary>
-    /// <param name="child"></param>
-    protected abstract void OnChildCompleted(Task<T> child);
 
     /// <summary>
     /// Task收到外部事件
@@ -468,7 +431,7 @@ public abstract class Task<T> : ICancelTokenListener where T : class
     /// </summary>
     /// <param name="cancelToken">进入取消状态的取消令牌</param>
     public virtual void OnCancelRequested(CancelToken cancelToken) {
-        if (IsRunning) SetCompleted(TaskStatus.CANCELLED, false);
+        // 心跳驱动下不能立即取消
     }
 
     /// <summary>
@@ -484,8 +447,8 @@ public abstract class Task<T> : ICancelTokenListener where T : class
         }
         // 被显式调用stop的task不能通知父节点，只要任务执行过就需要标记
         if (this.status == TaskStatus.RUNNING) {
-            ctl |= MASK_DISABLE_NOTIFY;
-            SetCompleted(result, false);
+            // ctl |= MASK_DISABLE_NOTIFY;
+            SetCompleted(result);
         }
     }
 
@@ -532,6 +495,7 @@ public abstract class Task<T> : ICancelTokenListener where T : class
         ctl &= MASK_OVERRIDES; // 保留Overrides信息
         enterFrame = 0;
         exitFrame = 0;
+        delayedStatus = 0;
         reentryId++; // 上下文变动，和之前的执行分开
     }
 
@@ -620,7 +584,7 @@ public abstract class Task<T> : ICancelTokenListener where T : class
             return true;
         }
         if (cancelToken.IsCancelRequested) { // 这里是手动检查
-            SetCompleted(TaskStatus.CANCELLED, false);
+            SetCompleted(TaskStatus.CANCELLED);
             return true;
         }
         return false;
@@ -781,7 +745,7 @@ public abstract class Task<T> : ICancelTokenListener where T : class
     #region 模板方法
 
     /** start方法不暴露，否则以后难以改动 */
-    internal void Template_Start(Task<T>? control, int initMask) {
+    internal int Template_Start(Task<T>? control, int initMask) {
         Debug.Assert(status != TaskStatus.RUNNING);
         // 初始化基础上下文后才可以检测取消
         if (control != null) {
@@ -795,8 +759,7 @@ public abstract class Task<T> : ICancelTokenListener where T : class
         CancelToken cancelToken = this.cancelToken;
         if (cancelToken.IsCancelRequested) { // 胎死腹中
             ReleaseContext();
-            SetCompleted(TaskStatus.CANCELLED, false);
-            return;
+            return SetCompleted(TaskStatus.CANCELLED);
         }
 
         int prevStatus = Math.Min(TaskStatus.MAX_PREV_STATUS, this.status);
@@ -804,7 +767,7 @@ public abstract class Task<T> : ICancelTokenListener where T : class
         ctl = initMask;
         status = TaskStatus.RUNNING; // 先更新为running状态，以避免执行过程中外部查询task的状态时仍处于上一次的结束status
         enterFrame = exitFrame = taskEntry.CurFrame;
-        int reentryId = ++this.reentryId; // 和上次执行的exit分开
+        ++reentryId; // 和上次执行的exit分开
         // beforeEnter
         if ((initMask & TaskOverrides.MASK_BEFORE_ENTER) != 0) {
             BeforeEnter(); // 这里用户可能修改控制流标记
@@ -819,38 +782,32 @@ public abstract class Task<T> : ICancelTokenListener where T : class
             }
         }
         // enter
+        int tempStatus;
         if ((initMask & TaskOverrides.MASK_ENTER) != 0) {
-            Enter(reentryId); // enter可能导致结束和取消信号，也可能修改ctl
-            if (reentryId != this.reentryId) {
-                return;
+            tempStatus = Enter(); // enter可能导致结束和取消信号，也可能修改ctl
+            if (TaskStatus.IsCompleted(tempStatus)) {
+                return SetCompleted(tempStatus);
             }
 #if !TASK_MANUAL_CHECK_CANCEL
             if (cancelToken.IsCancelRequested && IsAutoCheckCancel) {
-                SetCompleted(TaskStatus.CANCELLED, false);
-                return;
+                return SetCompleted(TaskStatus.CANCELLED);
             }
 #endif
         }
         if (CheckSlowStart(ctl)) { // 需要使用最新的ctl
-            if ((initMask & MASK_DISABLE_NOTIFY) == 0 && control != null) {
-                control.OnChildRunning(this);
-            }
-            return;
+            return TaskStatus.RUNNING;
         }
         // execute
-        Execute();
-        if (reentryId != this.reentryId) {
-            return;
+        tempStatus = Execute();
+        if (TaskStatus.IsCompleted(tempStatus)) {
+            return SetCompleted(tempStatus);
         }
 #if !TASK_MANUAL_CHECK_CANCEL
         if (cancelToken.IsCancelRequested && IsAutoCheckCancel) {
-            SetCompleted(TaskStatus.CANCELLED, false);
-            return;
+            return SetCompleted(TaskStatus.CANCELLED);
         }
 #endif
-        if ((initMask & MASK_DISABLE_NOTIFY) == 0 && control != null) {
-            control.OnChildRunning(this);
-        }
+        return TaskStatus.RUNNING;
     }
 
     /// <summary>
@@ -858,29 +815,34 @@ public abstract class Task<T> : ICancelTokenListener where T : class
     /// (通过参数的方式，有助于我们统一代码，也简化子类实现；同时避免遗漏)
     /// </summary>
     /// <param name="fromControl">是否由父节点调用</param>
+    /// <returns>最新状态</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Template_Execute(bool fromControl) {
+    public int Template_Execute(bool fromControl) {
         Debug.Assert(status == TaskStatus.RUNNING);
-        // 事件驱动下无法精确判断是否是心跳走到这里，因此只要处于非激活状态就拒绝父节点请求(装死)
+        // 处理被内联Task的结果
+        if (delayedStatus > TaskStatus.RUNNING) {
+            return SetCompleted(delayedStatus);
+        }
+        // 心跳驱动框架下，fromControl就一定是心跳
         if (fromControl && (ctl & MASK_NOT_ACTIVE_IN_HIERARCHY) != 0) {
-            return;
+            return TaskStatus.RUNNING;
+        }
+
+#if !TASK_MANUAL_CHECK_CANCEL
+        if (cancelToken.IsCancelRequested && IsAutoCheckCancel) {
+            return SetCompleted(TaskStatus.CANCELLED);
+        }
+#endif
+        int tempStatus = Execute();
+        if (TaskStatus.IsCompleted(tempStatus)) {
+            return SetCompleted(tempStatus);
         }
 #if !TASK_MANUAL_CHECK_CANCEL
         if (cancelToken.IsCancelRequested && IsAutoCheckCancel) {
-            SetCompleted(TaskStatus.CANCELLED, false);
-            return;
+            return SetCompleted(TaskStatus.CANCELLED);
         }
-        int reentryId = this.reentryId;
-        Execute();
-        if (reentryId != this.reentryId) {
-            return;
-        }
-        if (cancelToken.IsCancelRequested && IsAutoCheckCancel) {
-            SetCompleted(TaskStatus.CANCELLED, false);
-        }
-#else
-        Execute();
 #endif
+        return TaskStatus.RUNNING;
     }
 
     /// <summary>
@@ -888,53 +850,69 @@ public abstract class Task<T> : ICancelTokenListener where T : class
     /// </summary>
     /// <param name="helper">存储被内联子节点的对象</param>
     /// <param name="source">被内联前的Task</param>
+    /// <returns>source的最新状态！source的最新状态！source的最新状态！</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Template_ExecuteInlined(ref TaskInlineHelper<T> helper, Task<T> source) {
-        Debug.Assert(status == TaskStatus.RUNNING && this != source);
+    public int Template_ExecuteInlined(ref TaskInlineHelper<T> helper, Task<T> source) {
+        Debug.Assert(status == TaskStatus.RUNNING && this != source && delayedStatus == 0);
         if ((ctl & MASK_NOT_ACTIVE_IN_HIERARCHY) != 0) {
-            return;
+            return TaskStatus.RUNNING;
         }
-        // 理论上这里可以先检查一下source的取消令牌，但如果source收到取消信号，则被内联的节点的子节点也一定收到取消信号
-        int sourceReentryId = source.reentryId;
-        int reentryId = this.reentryId;
-        // 内联template_execute逻辑
+        int tempStatus;
         {
 #if !TASK_MANUAL_CHECK_CANCEL
             if (cancelToken.IsCancelRequested && IsAutoCheckCancel) {
-                SetCompleted(TaskStatus.CANCELLED, false);
+                tempStatus = TaskStatus.CANCELLED;
                 goto outer;
             }
-            Execute();
-            if (reentryId != this.reentryId) {
+#endif
+            tempStatus = Execute();
+            if (TaskStatus.IsCompleted(tempStatus)) {
                 goto outer;
             }
+#if !TASK_MANUAL_CHECK_CANCEL
             if (cancelToken.IsCancelRequested && IsAutoCheckCancel) {
-                SetCompleted(TaskStatus.CANCELLED, false);
+                tempStatus = TaskStatus.CANCELLED;
             }
-#else
-            Execute();
 #endif
         }
         outer:
         {
-            // 如果被内联子节点退出，而源任务未退出，则重新内联(source可能自身进行了新的内联)
-            if (reentryId != this.reentryId && sourceReentryId == source.reentryId && helper.GetInlinedChild() == null) {
-                helper.InlineChild(source);
+            if (tempStatus == TaskStatus.RUNNING) {
+                return TaskStatus.RUNNING;
             }
+            // 如果被内联的子节点执行完毕，则延迟完成
+            Debug.Assert(TaskStatus.IsCompleted(tempStatus));
+            delayedStatus = tempStatus;
+            ProcessInlinedResult(this, ref helper, source);
         }
+        return source.status;
     }
 
-    private void Template_Exit() {
-        if ((ctl & MASK_REGISTERED_LISTENER) != 0) {
-            cancelToken.RemListener(this);
-        }
-        exitFrame = taskEntry.CurFrame;
-        StopRunningChildren(); // 停止有特殊顺序，不能使用访问器
-        if ((ctl & TaskOverrides.MASK_EXIT) != 0) {
-            Exit();
-        }
-        ReleaseContext();
-        reentryId++;
+    /** 声明为静态方法，避免手滑访问到this属性 */
+    private static void ProcessInlinedResult(Task<T> inlined, ref TaskInlineHelper<T> helper, Task<T> source) {
+        // 在内联执行的情况下，进入完成状态时先暂存结果，也不调用Exit，然后从source开始向下Execute处理结果
+        // 如果直接调用 source.Template_Execute(true)，会产生较深的调用栈
+        // 按照我们对可内联节点的要求，我们可以反转这个过程，从而转换为普通循环，这是使心跳驱动版本超越事件驱动版本的关键
+        Task<T> tempControl = inlined.control;
+        do {
+            int tempStatus = tempControl.Execute(); // 直接调用Execute
+            if (tempStatus == TaskStatus.RUNNING) { // 父节点不能进入完成状态
+                break;
+            }
+            Debug.Assert(TaskStatus.IsCompleted(tempStatus));
+            tempControl.delayedStatus = tempStatus; // 父节点的结果也暂存，再由其父节点处理
+
+            if (tempControl == source) {
+                helper.StopInline(); // help gc
+                source.SetCompleted(tempStatus); // 如果source也进入完成状态，则直接完成
+                return;
+            }
+
+            tempControl = tempControl.control;
+        } while (true);
+
+        // 如果被内联的子节点进入了完成状态，但source没有进入完成状态，则source需要重新内联
+        helper.InlineChild(source);
     }
 
     /// <summary>
@@ -943,32 +921,34 @@ public abstract class Task<T> : ICancelTokenListener where T : class
     /// <param name="child">普通子节点，或需要接收通知的钩子任务</param>
     /// <param name="checkGuard">是否检查子节点的前置条件</param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Template_StartChild(Task<T> child, bool checkGuard) {
+    private int Template_StartChild(Task<T> child, bool checkGuard) {
         if (!checkGuard || child.guard == null || Template_CheckGuard(child.guard)) {
             int initMask = (ctl & MASK_CHECKING_GUARD) == 0 ? 0 : MASK_GUARD_BASE_OPTIONS;
-            child.Template_Start(this, initMask);
+            return child.Template_Start(this, initMask);
         } else {
             child.SetGuardFailed(this, false);
+            return child.status;
         }
     }
 
     /// <summary>
-    /// 启动钩子节点
-    /// 1.钩子任务不会触发<see cref="OnChildRunning"/>和<see cref="OnChildCompleted"/>
-    /// 2.前置条件其实是特殊的钩子任务
-    /// 3.条件分支通常不应该有钩子任务
+    /// 启动子节点
     /// </summary>
-    /// <param name="hook">钩子任务，或不需要接收事件通知的子节点</param>
+    /// <param name="child">普通子节点，或需要接收通知的钩子任务</param>
     /// <param name="checkGuard">是否检查子节点的前置条件</param>
+    /// <param name="inlineHelper">内联工具类</param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Template_StartHook(Task<T> hook, bool checkGuard) {
-        if (!checkGuard || hook.guard == null || Template_CheckGuard(hook.guard)) {
-            int initMask = (ctl & MASK_CHECKING_GUARD) == 0
-                ? MASK_DISABLE_NOTIFY
-                : MASK_DISABLE_NOTIFY | MASK_GUARD_BASE_OPTIONS;
-            hook.Template_Start(this, initMask);
+    public int Template_StartChild(Task<T> child, bool checkGuard, ref TaskInlineHelper<T> inlineHelper) {
+        if (!checkGuard || child.guard == null || Template_CheckGuard(child.guard)) {
+            int initMask = (ctl & MASK_CHECKING_GUARD) == 0 ? 0 : MASK_GUARD_BASE_OPTIONS;
+            int childStatus = child.Template_Start(this, initMask);
+            if (childStatus == TaskStatus.RUNNING) {
+                inlineHelper.InlineChild(child);
+            }
+            return childStatus;
         } else {
-            hook.SetGuardFailed(this, true);
+            child.SetGuardFailed(this, false);
+            return child.status;
         }
     }
 
@@ -993,8 +973,7 @@ public abstract class Task<T> : ICancelTokenListener where T : class
         try {
             // 极少情况下会有前置的前置，更推荐组合节点，更清晰；guard的guard也是检测当前上下文
             if (guard.guard != null && !Template_CheckGuard(guard.guard)) {
-                guard.ctl |= MASK_DISABLE_NOTIFY;
-                guard.SetCompleted(inverted ? TaskStatus.SUCCESS : TaskStatus.GUARD_FAILED, false);
+                guard.SetCompleted(inverted ? TaskStatus.SUCCESS : TaskStatus.GUARD_FAILED);
                 return inverted;
             }
             guard.Template_Start(this, MASK_DISABLE_NOTIFY | MASK_GUARD_BASE_OPTIONS);

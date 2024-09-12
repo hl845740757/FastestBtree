@@ -35,11 +35,12 @@ public class SimpleParallel<T> : ParallelBranch<T> where T : class
     public SimpleParallel(List<Task<T>>? children) : base(children) {
     }
 
-    protected override void Enter(int reentryId) {
+    protected override int Enter() {
         InitChildHelpers(false);
+        return TaskStatus.RUNNING;
     }
 
-    protected override void Execute() {
+    protected override int Execute() {
         List<Task<T>> children = this.children;
         int reentryId = ReentryId;
         for (int idx = 0; idx < children.Count; idx++) {
@@ -52,28 +53,19 @@ public class SimpleParallel<T> : ParallelBranch<T> where T : class
                 child.Template_Execute(true);
             } else {
                 SetChildCancelToken(child, childHelper.cancelToken); // 运行前赋值取消令牌
-                Template_StartChild(child, true);
+                Template_StartChild(child, true, ref childHelper.Unwrap());
+            }
+            if (child.IsCompleted) {
+                UnsetChildCancelToken(child); // 运行结束删除令牌
+                if (idx == 0) {
+                    return child.Status;
+                }
             }
             if (CheckCancel(reentryId)) { // 得出结果或取消
-                return;
+                return TaskStatus.CANCELLED;
             }
         }
-    }
-
-    protected override void OnChildRunning(Task<T> child) {
-        ParallelChildHelper<T> childHelper = GetChildHelper(child);
-        childHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        ParallelChildHelper<T> childHelper = GetChildHelper(child);
-        childHelper.StopInline();
-        UnsetChildCancelToken(child);
-
-        Task<T> mainTask = children[0];
-        if (child == mainTask) {
-            SetCompleted(child.Status, true);
-        }
+        return TaskStatus.RUNNING;
     }
 
     protected override void OnEventImpl(object eventObj) {

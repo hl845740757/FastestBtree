@@ -1,6 +1,6 @@
 ﻿#region LICENSE
 
-// Copyright 2024 wjybxx(845740757@qq.com)
+// Copyright 2023-2024 wjybxx(845740757@qq.com)
 // 
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,31 +16,22 @@
 
 #endregion
 
-namespace Wjybxx.BTree.Decorator
+using System;
+
+namespace Wjybxx.Commons
 {
 /// <summary>
-/// 重复运行子节点，直到该任务失败
+/// 该异常表示断言错误，不应该发送的错误发生了。
 /// </summary>
-[TaskInlinable]
-public class UntilFail<T> : LoopDecorator<T> where T : class
+public class AssertionError : Exception
 {
-    public UntilFail() {
+    public AssertionError() {
     }
 
-    public UntilFail(Task<T> child) : base(child) {
+    public AssertionError(string? message) : base(message) {
     }
 
-    protected override int OnChildCompleted(Task<T> child) {
-        if (child.IsCancelled) {
-            return TaskStatus.CANCELLED;
-        }
-        if (child.IsFailed) {
-            return TaskStatus.SUCCESS;
-        } else if (!HasNextLoop()) {
-            return TaskStatus.MAX_LOOP_LIMIT;
-        } else {
-            return TaskStatus.RUNNING;
-        }
+    public AssertionError(string? message, Exception? innerException) : base(message, innerException) {
     }
 }
 }

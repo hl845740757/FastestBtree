@@ -36,39 +36,32 @@ public class Sequence<T> : SingleRunningChildBranch<T> where T : class
     public Sequence(Task<T> first, Task<T>? second) : base(first, second) {
     }
 
-    protected override void Enter(int reentryId) {
+    protected override int Enter() {
         if (children.Count == 0) {
-            SetSuccess();
+            return TaskStatus.SUCCESS;
         } else if (IsCheckingGuard()) {
             // 条件检测性能优化
             for (int i = 0; i < children.Count; i++) {
                 Task<T> child = children[i];
                 if (!Template_CheckGuard(child)) {
-                    SetCompleted(child.Status, true);
-                    return;
+                    return child.Status;
                 }
             }
-            SetSuccess();
+            return TaskStatus.SUCCESS;
         }
+        return TaskStatus.RUNNING;
     }
 
-    protected override void OnChildRunning(Task<T> child) {
-        inlineHelper.InlineChild(child);
-    }
-
-    protected override void OnChildCompleted(Task<T> child) {
-        runningChild = null;
-        inlineHelper.StopInline();
+    protected override int OnChildCompleted(Task<T> child) {
         if (child.IsCancelled) {
-            SetCancelled();
-            return;
+            return TaskStatus.CANCELLED;
         }
         if (child.IsFailed) { // 失败码有传递的价值
-            SetCompleted(child.Status, true);
+            return child.Status;
         } else if (IsAllChildCompleted) {
-            SetSuccess();
+            return TaskStatus.SUCCESS;
         } else {
-            Template_Execute(false);
+            return TaskStatus.RUNNING;
         }
     }
 }

@@ -17,6 +17,7 @@
 #endregion
 
 using Wjybxx.Commons;
+using Wjybxx.Commons.Collections;
 
 namespace Wjybxx.BTree.Leaf
 {
@@ -36,11 +37,11 @@ public class SimpleRandom<T> : LeafTask<T> where T : class
         this.p = p;
     }
 
-    protected override void Execute() {
-        if (MathCommon.SharedRandom.NextDouble() <= p) {
-            SetSuccess();
+    protected override int Execute() {
+        if (CollectionUtil.SharedRandom.NextDouble() <= p) {
+            return TaskStatus.SUCCESS;
         } else {
-            SetFailed(TaskStatus.ERROR);
+            return TaskStatus.ERROR;
         }
     }
 

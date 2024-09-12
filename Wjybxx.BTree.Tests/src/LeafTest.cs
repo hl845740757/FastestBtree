@@ -64,11 +64,11 @@ public class LeafTest
         Assert.AreEqual(0, waitFrame.PrevStatus);
     }
 
-    private class PrevStatusTask<T> : ActionTask<T> where T : class
+    private class PrevStatusTask<T> : LeafTask<T> where T : class
     {
         private int next = TaskStatus.SUCCESS;
 
-        protected override int ExecuteImpl() {
+        protected override int Execute() {
             if (next == TaskStatus.GUARD_FAILED) {
                 next++;
             }

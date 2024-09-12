@@ -36,8 +36,7 @@ public abstract class SingleRunningChildBranch<T> : BranchTask<T> where T : clas
 
     /// <summary>
     /// 被内联运行的子节点
-    /// 1.该字段定义在这里是为了减少抽象层次，该类并不提供功能。
-    /// 2.子类要支持实现内联优化时，应当在<see cref="OnChildRunning"/>和<see cref="Task{T}.OnChildCompleted"/>维护字段引用。
+    /// 该字段定义在这里是为了减少抽象层次，该类并不提供功能，需要子类在Start子节点的时候启用内联。
     /// </summary>
     [NonSerialized]
     protected TaskInlineHelper<T> inlineHelper = new TaskInlineHelper<T>();
@@ -121,19 +120,29 @@ public abstract class SingleRunningChildBranch<T> : BranchTask<T> where T : clas
         }
     }
 
-    protected override void Execute() {
-        Task<T>? runningChild = this.runningChild;
-        if (runningChild == null) {
-            this.runningChild = runningChild = NextChild();
-            Template_StartChild(runningChild, true);
-        } else {
-            Task<T>? inlinedChild = inlineHelper.GetInlinedChild();
-            if (inlinedChild != null) {
-                inlinedChild.Template_ExecuteInlined(ref inlineHelper, runningChild);
-            } else if (runningChild.IsRunning) {
-                runningChild.Template_Execute(true);
+    protected override int Execute() {
+        while (true) {
+            Task<T>? runningChild = this.runningChild; // onCompleted时会被清理
+            if (runningChild == null) {
+                this.runningChild = runningChild = NextChild();
+                Template_StartChild(runningChild, true, ref inlineHelper);
             } else {
-                Template_StartChild(runningChild, true); // 可能继续运行前一个节点
+                Task<T>? inlinedChild = inlineHelper.GetInlinedChild();
+                if (inlinedChild != null) {
+                    inlinedChild.Template_ExecuteInlined(ref inlineHelper, runningChild);
+                } else if (runningChild.IsRunning) {
+                    runningChild.Template_Execute(true);
+                } else {
+                    Template_StartChild(runningChild, true, ref inlineHelper); // 可能继续运行前一个节点
+                }
+            }
+            if (runningChild.IsRunning) {
+                return TaskStatus.RUNNING;
+            }
+            this.runningChild = null;
+            int result = OnChildCompleted(runningChild);
+            if (result != TaskStatus.RUNNING) {
+                return result;
             }
         }
     }
@@ -153,32 +162,11 @@ public abstract class SingleRunningChildBranch<T> : BranchTask<T> where T : clas
         return $"numChildren: {children.Count}, currentIndex: {runningIndex}";
     }
 
-    /** 子类如果支持内联，则重写该方法 */
-    protected override void OnChildRunning(Task<T> child) {
-        runningChild = child; // 子类可能未赋值
-    }
-
     /// <summary>
-    ///  子类的实现模板：
-    /// <code>
-    ///  protected void OnChildCompleted(Task child) {
-    ///     runningChild = null;
-    ///     inlineHelper.StopInline();
-    ///     // 尝试计算结果（记得处理取消）
-    ///      ...
-    ///      // 如果未得出结果
-    ///      if (!IsExecuting()) {
-    ///         Template_Execute();
-    ///     }
-    ///  }
-    /// </code>
-    /// ps: 推荐子类重复编码避免调用base
+    /// 尝试计算结果
     /// </summary>
     /// <param name="child"></param>
-    protected override void OnChildCompleted(Task<T> child) {
-        runningChild = null;
-        inlineHelper.StopInline();
-    }
+    protected abstract int OnChildCompleted(Task<T> child);
 
     #endregion
 }

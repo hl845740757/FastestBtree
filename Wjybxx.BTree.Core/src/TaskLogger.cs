@@ -17,7 +17,10 @@
 #endregion
 
 using System;
-using Wjybxx.Commons.Logger;
+
+#if UNITY_2018_4_OR_NEWER
+using UnityEngine;
+#endif
 
 namespace Wjybxx.BTree
 {
@@ -26,22 +29,50 @@ namespace Wjybxx.BTree
 /// </summary>
 public static class TaskLogger
 {
-    private static readonly ILogger logger = LoggerFactory.GetLogger(typeof(TaskLogger));
-
     public static void Info(string format, params object?[] args) {
-        logger.Info(format, args);
+#if UNITY_2018_4_OR_NEWER
+        Debug.LogFormat(format, args);
+#else
+        Console.WriteLine(format, args);
+#endif
     }
 
     public static void Info(Exception? ex, string format, params object?[] args) {
-        logger.Info(ex, format, args);
+#if UNITY_2018_4_OR_NEWER
+        Debug.LogFormat(format, args);
+        if (ex != null)
+        { 
+            Debug.LogException(ex);
+        }
+#else
+        Console.WriteLine(format, args);
+        if (ex != null) {
+            Console.WriteLine(ex);
+        }
+#endif
     }
 
     public static void Warning(string format, params object?[] args) {
-        logger.Warn(format, args);
+#if UNITY_2018_4_OR_NEWER
+        Debug.LogWarningFormat(format, args);
+#else
+        Console.WriteLine(format, args);
+#endif
     }
 
     public static void Warning(Exception? ex, string format, params object?[] args) {
-        logger.Warn(ex, format, args);
+#if UNITY_2018_4_OR_NEWER
+        Debug.LogWarningFormat(format, args);
+        if (ex != null)
+        { 
+            Debug.LogException(ex);
+        }
+#else
+        Console.WriteLine(format, args);
+        if (ex != null) {
+            Console.WriteLine(ex);
+        }
+#endif
     }
 }
 }
