@@ -39,6 +39,9 @@ public class AlwaysRunning<T> : Decorator<T> where T : class
     protected override void BeforeEnter() {
         base.BeforeEnter();
         started = false;
+        if (child == null) {
+            IsBreakInline = true;
+        }
     }
 
     protected override int Execute() {
@@ -57,6 +60,9 @@ public class AlwaysRunning<T> : Decorator<T> where T : class
         } else {
             started = true;
             Template_StartChild(child, true, ref inlineHelper);
+        }
+        if (child.IsCompleted) {
+            IsBreakInline = true;
         }
         // 需要响应取消
         return child.IsCancelled ? TaskStatus.CANCELLED : TaskStatus.RUNNING;

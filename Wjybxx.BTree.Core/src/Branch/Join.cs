@@ -67,7 +67,6 @@ public class Join<T> : ParallelBranch<T> where T : class
         if (children.Count == 0) {
             return TaskStatus.RUNNING;
         }
-        int reentryId = ReentryId;
         for (int i = 0; i < children.Count; i++) {
             Task<T> child = children[i];
             ParallelChildHelper<T> childHelper = GetChildHelper(child);
@@ -96,7 +95,7 @@ public class Join<T> : ParallelBranch<T> where T : class
                     return result;
                 }
             }
-            if (CheckCancel(reentryId)) {
+            if (cancelToken.IsCancelRequested) { // 收到取消信号
                 return TaskStatus.CANCELLED;
             }
         }

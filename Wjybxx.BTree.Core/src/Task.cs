@@ -573,24 +573,6 @@ public abstract class Task<T> : ICancelTokenListener where T : class
     }
 
     /// <summary>
-    /// 检查取消
-    /// @see #isExited(int)
-    /// </summary>
-    /// <param name="rid">重入id；方法保存的局部变量</param>
-    /// <returns>任务是否已进入完成状态；如果返回true，调用者应立即退出</returns>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool CheckCancel(int rid) {
-        if (rid != this.reentryId) { // exit
-            return true;
-        }
-        if (cancelToken.IsCancelRequested) { // 这里是手动检查
-            SetCompleted(TaskStatus.CANCELLED);
-            return true;
-        }
-        return false;
-    }
-
-    /// <summary>
     /// 获取重入id
     /// 1.重入id用于解决事件（或外部逻辑）可能使当前Task进入完成状态的问题。
     /// 2.如果执行的外部逻辑可能触发状态切换，在执行外部逻辑前最好捕获重入id，再执行外部逻辑后以检查是否可进行运行。
@@ -605,8 +587,7 @@ public abstract class Task<T> : ICancelTokenListener where T : class
     /// 重入id对应的任务是否已退出，即：是否已执行<see cref="Exit"/>方法。
     /// 1.如果已退出，当前逻辑应该立即退出。
     /// 2.通常在执行外部代码后都应该检测，eg：运行子节点，派发事件，执行用户钩子...
-    /// 3.通常循环体中的代码应该调用<see cref="CheckCancel"/>
-    /// 4.也可以用于检测是否已重新启动
+    /// 3.也可以用于检测是否已重新启动
     /// </summary>
     /// <param name="rid">重入id；方法保存的局部变量</param>
     /// <returns>重入id对应的任务是否已退出</returns>
@@ -657,7 +638,7 @@ public abstract class Task<T> : ICancelTokenListener where T : class
 
     /// <summary>
     /// 告知模板方法是否在<see cref="Enter"/>前自动调用<see cref="ResetChildrenForRestart"/>
-    /// 1.默认值由<see cref="Flags"/>中的信息指定，默认不分开执行
+    /// 1.默认值由<see cref="Flags"/>中的信息指定，默认false
     /// 2.要覆盖默认值应当在<see cref="BeforeEnter"/>方法中调用
     /// 3.部分任务可能在调用<see cref="ResetForRestart()"/>之前不会再次运行，因此需要该特性
     /// </summary>
@@ -669,7 +650,7 @@ public abstract class Task<T> : ICancelTokenListener where T : class
 
     /// <summary>
     /// 告知模板方法是否手动检测取消
-    /// 1.默认值由<see cref="Flags"/>中的信息指定，默认不禁用
+    /// 1.默认值由<see cref="Flags"/>中的信息指定，默认false
     /// 2.是否检测取消信号是一个动态的属性，可随时更改 -- 因此不要轻易缓存。
     /// </summary>
     public bool IsManualCheckCancel {
@@ -719,7 +700,7 @@ public abstract class Task<T> : ICancelTokenListener where T : class
 
     /// <summary>
     /// 当task作为guard节点时，是否取反(减少栈深度) -- 避免套用<see cref="Decorator.Inverter{T}"/>
-    /// 1.默认值由<see cref="Flags"/>中的信息指定，默认不分开执行
+    /// 1.默认值由<see cref="Flags"/>中的信息指定，默认false
     /// 2.要覆盖默认值应当在<see cref="BeforeEnter"/>方法中调用
     /// </summary>
     public bool IsInvertedGuard {
@@ -727,10 +708,10 @@ public abstract class Task<T> : ICancelTokenListener where T : class
         get => (ctl & MASK_INVERTED_GUARD) != 0;
         set => SetCtlBit(MASK_INVERTED_GUARD, value);
     }
-    
+
     /// <summary>
     /// 当Task可以被内联时是否打破内联
-    /// 1.默认值由<see cref="Flags"/>中的信息指定，默认不分开执行
+    /// 1.默认值由<see cref="Flags"/>中的信息指定，默认false
     /// 2.要覆盖默认值应当在<see cref="BeforeEnter"/>方法中调用
     /// 3.它的作用是避免被内联子节点进入完成状态时产生【过长的恢复路径】
     /// </summary>

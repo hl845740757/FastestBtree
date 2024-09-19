@@ -42,7 +42,6 @@ public class SimpleParallel<T> : ParallelBranch<T> where T : class
 
     protected override int Execute() {
         List<Task<T>> children = this.children;
-        int reentryId = ReentryId;
         for (int idx = 0; idx < children.Count; idx++) {
             Task<T> child = children[idx];
             ParallelChildHelper<T> childHelper = GetChildHelper(child);
@@ -61,7 +60,7 @@ public class SimpleParallel<T> : ParallelBranch<T> where T : class
                     return child.Status;
                 }
             }
-            if (CheckCancel(reentryId)) { // 得出结果或取消
+            if (cancelToken.IsCancelRequested) { // 收到取消信号
                 return TaskStatus.CANCELLED;
             }
         }
